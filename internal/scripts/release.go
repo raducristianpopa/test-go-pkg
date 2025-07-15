@@ -223,7 +223,7 @@ func commitAndPushGoModChanges(version string) error {
 		return fmt.Errorf("failed to add go.mod/go.sum: %v", err)
 	}
 
-	commitMsg := fmt.Sprintf("Update module path for %s", version)
+	commitMsg := fmt.Sprintf("chore: update module path for %s", version)
 	cmd = exec.Command("git", "commit", "-m", commitMsg)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to commit go.mod changes: %v", err)
