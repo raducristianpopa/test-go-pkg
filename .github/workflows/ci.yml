@@ -106,6 +106,7 @@ jobs:
 
       - name: Get new version
         id: get_version
+        if: github.event.inputs.dry_run != 'true'
         run: |
           git fetch --tags
           NEW_VERSION=$(git tag -l --sort=-version:refname | head -n1)
@@ -117,6 +118,7 @@ jobs:
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
+        if: github.event.inputs.dry_run != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
