@@ -1,4 +1,4 @@
-module github.com/raducristianpopa/test-go-pkg/v2
+module github.com/raducristianpopa/test-go-pkg
 
 go 1.20
 

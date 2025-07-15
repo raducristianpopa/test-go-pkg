@@ -78,7 +78,7 @@ func main() {
 	newVersion := bumpVersion(currentVersion, bump)
 	fmt.Printf("New version: %s\n", newVersion)
 
-	needsGoModUpdate := bump == major && currentVersion.Major >= 1
+	needsGoModUpdate := bump == major && currentVersion.Major >= 0
 
 	if needsGoModUpdate {
 		fmt.Printf("Major version bump detected - 'go.mod' needs update\n")
