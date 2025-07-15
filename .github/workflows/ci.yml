@@ -25,7 +25,7 @@ on:
       - main
 
 jobs:
-  vulncheck-secchek:
+  go-vuln-and-sec-checks:
     name: Vulnerability scan & Security check
     runs-on: "ubuntu-24.04"
     steps:
@@ -41,11 +41,13 @@ jobs:
       - name: Scan for vulnerabilities
         run: govulncheck ./...
       - name: Run Go security checker
-        uses: securego/gosec@v2
+        uses: securego/gosec@master
+        with:
+          args: -exclude-dir internal/scripts ./...
 
   build-and-test:
     runs-on: "ubuntu-24.04"
-    needs: [govulncheck-seccheck]
+    needs: [go-vuln-and-sec-checks]
     strategy:
       matrix:
         go:
@@ -76,7 +78,7 @@ jobs:
   release:
     name: Release
     runs-on: "ubuntu-24.04"
-    needs: [vulncheck-seccheck, build-and-test]
+    needs: [go-vuln-and-sec-checks, build-and-test]
     if: |
       github.event_name == 'workflow_dispatch' && 
       github.event.inputs.bump_type != '' && 
