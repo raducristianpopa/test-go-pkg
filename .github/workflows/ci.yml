@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version bump type (leave empty for CI only)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: 'Dry run for release pipeline'
+        required: false
+        type: boolean
+        default: false
+  pull_request:
+    branches:
+      - '**'
+  push:
+    branches:
+      - main
+
+jobs:
+  govulncheck:
+    name: Vulnerability scan
+    runs-on: "ubuntu-24.04"
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+      - name: Set up Go v1.24
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          check-latest: true
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Scan for vulnerabilities
+        run: govulncheck ./...
+
+  build-and-test:
+    runs-on: "ubuntu-24.04"
+    strategy:
+      matrix:
+        go:
+          - "1.20"
+          - "1.21"
+          - "1.22"
+          - "1.23"
+          - "1.24"
+    name: "Build and test: go v${{ matrix.go }}"
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+      - name: Set up Go v${{ matrix.go }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Ensure tidy
+        run: go mod tidy
+      - name: Verify module file consistency
+        run: git diff --exit-code go.mod go.sum
+      - name: Compile all packages
+        run: go build ./...
+      # Only run the unit tests for now. We will need to integrate with the test
+      # wallet for the integration tests
+      - name: Run unit tests
+        run: go test 
+
+  release:
+    name: Release
+    runs-on: "ubuntu-24.04"
+    needs: [govulncheck, build-and-test]
+    if: |
+      github.event_name == 'workflow_dispatch' && 
+      github.event.inputs.bump_type != '' && 
+      github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          check-latest: true
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run Go release script
+        run: |
+          go run internal/scripts/release.go -type=${{ github.event.inputs.bump_type }}
+
+      - name: Get new version
+        id: get_version
+        run: |
+          git fetch --tags
+          NEW_VERSION=$(git tag -l --sort=-version:refname | head -n1)
+          if [ -z "$NEW_VERSION" ]; then
+            NEW_VERSION="v0.0.0"
+          fi
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Released new version: $NEW_VERSION"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.NEW_VERSION }}
+          name: ${{ steps.get_version.outputs.NEW_VERSION }}
+          generate_release_notes: true
+
+      - name: Trigger Go Proxy Cache
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          MODULE_PATH=$(go list -m)
+          VERSION="${{ steps.get_version.outputs.NEW_VERSION}}"
+          
+          if [[ "$VERSION" =~ ^v([2-9]|[1-9][0-9]+)\. ]]; then
+            MAJOR_VERSION=$(echo "$VERSION" | sed -n 's/^v\([0-9]*\)\..*$/\1/p')
+            MODULE_PATH="${MODULE_PATH}/v${MAJOR_VERSION}"
+          fi
+
+          GOPROXY_URL="https://proxy.golang.org/${MODULE_PATH}/@v/${VERSION}.info"
+          
+          if curl -f -s -m 30 "$GOPROXY_URL" > /dev/null; then
+            echo "Successfully triggered Go proxy cache"
+          else
+            echo "Go proxy request failed (it may take a few minutes for new modules)"
+          fi
+          echo "Status check at: https://proxy.golang.org/${MODULE_PATH}/@v/list"
